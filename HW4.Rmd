@@ -1,0 +1,142 @@
+---
+title: "HW4 Tables"
+author: "Claudia Santillan-Lensink"
+date: "3/9/2022"
+output: html_document
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+  encoding=encoding,
+  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyverse)
+library(ggthemes)
+library(viridisLite)
+library(viridis)
+library(dygraphs)
+library(xts)
+library(lubridate)
+library(knitr)
+library(kableExtra)
+library(sparkline)
+```
+
+
+# Global Deforestation Trends 1990-2020
+
+***   
+
+In this analysis I was interested in visualizing forestation loss. I downloaded a spreadsheet with annual forestation percentages by country and region from https://data.worldbank.org/indicator/AG.LND.FRST.ZS along with a spreadsheet of country are from https://data.worldbank.org/indicator/AG.LND.TOTL.K2
+
+I did some basic cleanup, removing blank headers using excel and did the rest of the clean-up in the attached code. I focused primarily on the change between 1990 and 2020, since these are the years where most countries have recorded values.
+
+By using the table, I wanted to depict the changes in percentages over time through the comparative graphs but also the total area to give some context to the impact. Since the trendline gave the information for whether the country is gaining or losing forested area, I didn't choose to add formating to indicate this. I wanted the user to be able to scroll through the data. I think continuing further with this data, it might be interesting to do an animated map with the change in forested percent. 
+
+I formated the numbers to one decimal place and opted not to use the decimal percent so I could use consistent rounding for all numbers.
+
+***
+
+```{r}
+# Data frame
+region <- read.csv("CountryAbbrevDesc.csv")
+countrywithRegion <- region[,1:2]
+
+forest <- read.csv("ForestCountryPercentYear.csv")
+#head(forest)
+
+# add regional data of countries
+forestdata <- forest %>%
+  left_join(countrywithRegion, by="Country.Code")
+
+land <- read.csv("LandAreabyCountry.csv")
+landarea <- land[,c(2,65)]
+
+#head(landarea)
+
+#add land area of countries
+forestdata <- forestdata %>%
+  left_join(landarea, by="Country.Code")
+
+#head(forestdata)
+
+#remove years prior to 1990 data collection
+forestdata <- forestdata[,c(1,35:67)]
+
+# Lines with no region name are regional data, remove those lines so only countries remain
+forestdata <- forestdata[!(forestdata$Region == ""), ]
+
+# remove lines with no 1990 data
+forestdata <- forestdata %>% filter(!is.na(X1990))
+
+# arrange alphabetically by Country Name
+forestdata <- forestdata %>% arrange(Country.Name)
+
+
+#head(forestdata)
+
+forestdata <- forestdata %>%rename_with(~ gsub('[[:punct:]]', '', .x))
+forestdata <- forestdata %>%rename(X2020 = X2020x)
+forestdata <- forestdata %>%rename(LandArea2020 = X2020y)
+
+forestdata$AreaChange <- (forestdata$X2020*forestdata$LandArea2020/100 - forestdata$X1990 * forestdata$LandArea2020/100)
+
+forestdatawide <- (forestdata[,1:32])
+
+forestdata_1 <- forestdata[,c(1:2,32,34:35)]
+
+
+
+forestdata_long <- forestdatawide %>%
+  pivot_longer(cols = X1990:X2020,        
+               names_to = "Year")    
+
+#head(forestdata_long)
+
+forestdata_long$Year<-gsub("X","",as.character(forestdata_long$Year))
+
+
+
+```
+
+
+```{r}
+#setting up table
+sparkline(0)
+
+forest_table <- forestdata_1 %>% 
+  select(CountryName, X1990, X2020, LandArea2020, AreaChange) %>%
+  mutate(area_trend=NA) %>% 
+  as.data.frame()
+
+for(c in forest_table$CountryName){
+  country_change <- forestdata_long %>%
+    filter(CountryName==c) %>%
+    arrange(Year) %>%
+    pull(value)
+  # add figure to data.frame
+  forest_table[which(forest_table$CountryName==c),"area_trend"] <- spk_chr(country_change)
+}
+
+forest_table_full <- forest_table %>% 
+  select(CountryName, X1990, X2020, area_trend, LandArea2020, AreaChange) %>%
+  kbl(escape = FALSE,
+      col.names = c("Country",
+                    "1990",
+                    "2020",
+                    "Trend",
+                    "(sq km)",
+                    "1990-2020"),
+      align = c("l","r","r","c","r","r"),
+      digits = 2) %>%
+  add_header_above(c(" ", " ","Percent Forested" = 2, "Forested Percent","2020 Area", "Change in sq km")) %>%
+  kable_styling(fixed_thead = TRUE) %>%
+  scroll_box(width = "100%", height = "700px")
+
+forest_table_full
+
+```
+
